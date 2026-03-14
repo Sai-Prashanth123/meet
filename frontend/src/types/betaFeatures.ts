@@ -32,8 +32,8 @@ export interface BetaFeatures {
 }
 
 export const DEFAULT_BETA_FEATURES: BetaFeatures = {
-  importAndRetranscribe: true, // Default: enabled
-  autoMeetingDetection: false, // Default: opt-in
+  importAndRetranscribe: true,
+  autoMeetingDetection: true, // Default: enabled — auto-starts recording when meeting detected
 };
 
 

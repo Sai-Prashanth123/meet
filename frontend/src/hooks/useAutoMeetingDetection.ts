@@ -46,7 +46,6 @@ export function useAutoMeetingDetection(
       unlistenDetected = await listen<MeetingDetectedEvent>(
         'meeting-detected',
         async (event) => {
-          if (!detectorConfig.auto_start_recording) return;
           if (isRecordingRef.current) return; // Already recording — skip
 
           const { suggested_meeting_name } = event.payload;

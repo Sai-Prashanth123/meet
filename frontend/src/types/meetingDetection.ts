@@ -19,12 +19,12 @@ export interface DetectorConfig {
 }
 
 export const DEFAULT_DETECTOR_CONFIG: DetectorConfig = {
-  enabled: false,
+  enabled: true,
   detect_zoom: true,
   detect_teams: true,
   detect_google_meet: true,
-  auto_start_recording: false,
-  auto_stop_recording: false,
+  auto_start_recording: true,
+  auto_stop_recording: true,
   stop_grace_period_secs: 30,
   poll_interval_secs: 5,
 };

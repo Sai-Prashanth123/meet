@@ -178,7 +178,17 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     if (typeof window !== 'undefined') {
       try {
         const saved = localStorage.getItem('meetingDetectorConfig');
-        if (saved) return { ...DEFAULT_DETECTOR_CONFIG, ...JSON.parse(saved) };
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          // Always force auto-start and enabled on — override any old saved false values
+          return {
+            ...DEFAULT_DETECTOR_CONFIG,
+            ...parsed,
+            enabled: true,
+            auto_start_recording: true,
+            auto_stop_recording: parsed.auto_stop_recording ?? true,
+          };
+        }
       } catch {}
     }
     return { ...DEFAULT_DETECTOR_CONFIG };
