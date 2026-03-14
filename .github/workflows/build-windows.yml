@@ -63,7 +63,31 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-          key: windows-x64-cpu-v1
+          key: windows-x64-vulkan-v1
+
+      - name: Install Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: 1.4.309.0
+          cache: true
+
+      - name: Configure Vulkan SDK environment
+        shell: pwsh
+        run: |
+          $vulkanSdk = $env:VULKAN_SDK
+          Write-Host "VULKAN_SDK: $vulkanSdk"
+          if (-not $vulkanSdk -or -not (Test-Path $vulkanSdk)) {
+            Write-Error "VULKAN_SDK not set or path does not exist"
+            exit 1
+          }
+          $binDir = Join-Path $vulkanSdk "Bin"
+          $libDir = Join-Path $vulkanSdk "Lib"
+          $includeDir = Join-Path $vulkanSdk "Include"
+          "PATH=$binDir;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "Vulkan_LIBRARY=$libDir\vulkan-1.lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "Vulkan_INCLUDE_DIR=$includeDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VK_SDK_PATH=$vulkanSdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Vulkan SDK configured successfully"
 
       - name: Install frontend dependencies
         run: |
