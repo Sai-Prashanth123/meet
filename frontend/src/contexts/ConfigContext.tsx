@@ -7,6 +7,7 @@ import { configService, ModelConfig } from '@/services/configService';
 import { invoke } from '@tauri-apps/api/core';
 import Analytics from '@/lib/analytics';
 import { BetaFeatures, BetaFeatureKey, loadBetaFeatures, saveBetaFeatures } from '@/types/betaFeatures';
+import { DetectorConfig, DEFAULT_DETECTOR_CONFIG } from '@/types/meetingDetection';
 
 export interface OllamaModel {
   name: string;
@@ -66,6 +67,10 @@ interface ConfigContextType {
   // Beta features
   betaFeatures: BetaFeatures;
   toggleBetaFeature: (featureKey: BetaFeatureKey, enabled: boolean) => void;
+
+  // Meeting detection config
+  detectorConfig: DetectorConfig;
+  updateDetectorConfig: (config: DetectorConfig) => void;
 
   // Ollama models
   models: OllamaModel[];
@@ -166,6 +171,17 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // Beta features state (localStorage)
   const [betaFeatures, setBetaFeatures] = useState<BetaFeatures>(() => {
     return loadBetaFeatures();
+  });
+
+  // Meeting detection config state (localStorage + Rust sync)
+  const [detectorConfig, setDetectorConfig] = useState<DetectorConfig>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('meetingDetectorConfig');
+        if (saved) return { ...DEFAULT_DETECTOR_CONFIG, ...JSON.parse(saved) };
+      } catch {}
+    }
+    return { ...DEFAULT_DETECTOR_CONFIG };
   });
 
   // Preference settings state (lazy loaded)
@@ -405,6 +421,24 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Sync detector config to Rust on mount
+  useEffect(() => {
+    invoke('set_detection_config', { config: detectorConfig }).catch((err) =>
+      console.error('[ConfigContext] Failed to sync detector config on mount:', err)
+    );
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update detector config: persist to localStorage + sync to Rust
+  const updateDetectorConfig = useCallback((config: DetectorConfig) => {
+    setDetectorConfig(config);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('meetingDetectorConfig', JSON.stringify(config));
+    }
+    invoke('set_detection_config', { config }).catch((err) =>
+      console.error('[ConfigContext] Failed to sync detector config to Rust:', err)
+    );
+  }, []);
+
   // Update individual provider API key
   const updateProviderApiKey = useCallback((provider: string, apiKey: string | null) => {
     setProviderApiKeys(prev => ({ ...prev, [provider]: apiKey }));
@@ -499,6 +533,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     toggleConfidenceIndicator,
     betaFeatures,
     toggleBetaFeature,
+    detectorConfig,
+    updateDetectorConfig,
     models,
     modelOptions,
     error,
@@ -521,6 +557,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     toggleConfidenceIndicator,
     betaFeatures,
     toggleBetaFeature,
+    detectorConfig,
+    updateDetectorConfig,
     models,
     modelOptions,
     error,

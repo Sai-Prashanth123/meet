@@ -8,12 +8,13 @@ import {
   BETA_FEATURE_NAMES,
   BETA_FEATURE_DESCRIPTIONS
 } from "@/types/betaFeatures"
+import { AutoMeetingDetectionSettings } from "./AutoMeetingDetectionSettings"
 
 export function BetaSettings() {
   const { betaFeatures, toggleBetaFeature } = useConfig();
 
   // Define feature order for display (allows custom ordering)
-  const featureOrder: BetaFeatureKey[] = ['importAndRetranscribe'];
+  const featureOrder: BetaFeatureKey[] = ['importAndRetranscribe', 'autoMeetingDetection'];
 
   return (
     <div className="space-y-6">
@@ -57,6 +58,11 @@ export function BetaSettings() {
               />
             </div>
           </div>
+
+          {/* Render sub-settings for features that have them */}
+          {featureKey === 'autoMeetingDetection' && betaFeatures.autoMeetingDetection && (
+            <AutoMeetingDetectionSettings />
+          )}
         </div>
       ))}
 

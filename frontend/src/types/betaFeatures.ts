@@ -22,10 +22,18 @@ export interface BetaFeatures {
    * @since v0.3.0
    */
   importAndRetranscribe: boolean;
+
+  /**
+   * Background detection of Zoom, Teams, and Google Meet sessions on Windows.
+   * Optionally auto-starts/stops recording when meetings begin/end.
+   * @since v0.4.0
+   */
+  autoMeetingDetection: boolean;
 }
 
 export const DEFAULT_BETA_FEATURES: BetaFeatures = {
   importAndRetranscribe: true, // Default: enabled
+  autoMeetingDetection: false, // Default: opt-in
 };
 
 
@@ -34,6 +42,7 @@ export const DEFAULT_BETA_FEATURES: BetaFeatures = {
  */
 export const BETA_FEATURE_NAMES: Record<keyof BetaFeatures, string> = {
   importAndRetranscribe: 'Import Audio & Retranscribe',
+  autoMeetingDetection: 'Auto-Meeting Detection',
 };
 
 /**
@@ -41,6 +50,7 @@ export const BETA_FEATURE_NAMES: Record<keyof BetaFeatures, string> = {
  */
 export const BETA_FEATURE_DESCRIPTIONS: Record<keyof BetaFeatures, string> = {
   importAndRetranscribe: 'Import audio files to transcribe or retranscribe existing meetings with different language settings.',
+  autoMeetingDetection: 'Automatically detects Zoom, Microsoft Teams, and Google Meet sessions (Windows only) and can start/stop recording when meetings begin or end.',
 };
 
 /**

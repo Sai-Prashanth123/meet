@@ -48,6 +48,7 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, item_id: &str) {
             }
         }
         "check_updates" => check_updates_handler(app),
+        "toggle_auto_detect" => toggle_auto_detect_handler(app),
         "quit" => app.exit(0),
         _ => {}
     }
@@ -197,6 +198,21 @@ fn stop_recording_handler<R: Runtime>(app: &AppHandle<R>) {
                 update_tray_menu_async(&app_clone).await;
             }
         }
+    });
+}
+
+fn toggle_auto_detect_handler<R: Runtime>(app: &AppHandle<R>) {
+    let app_clone = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let new_enabled = {
+            let mut cfg = crate::meeting_detection::detector::DETECTOR_CONFIG.write().await;
+            cfg.enabled = !cfg.enabled;
+            cfg.enabled
+        };
+        crate::meeting_detection::detector::DETECTION_ENABLED
+            .store(new_enabled, std::sync::atomic::Ordering::SeqCst);
+        log::info!("Auto-detect meetings toggled to: {}", new_enabled);
+        update_tray_menu_async(&app_clone).await;
     });
 }
 
@@ -381,7 +397,17 @@ fn build_menu<R: Runtime>(
         }
     }
 
+    let auto_detect_label = if crate::meeting_detection::detector::DETECTION_ENABLED
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        "🔍 Auto-Detect Meetings: ON"
+    } else {
+        "🔍 Auto-Detect Meetings: OFF"
+    };
+
     builder
+        .item(&PredefinedMenuItem::separator(app)?)
+        .item(&MenuItemBuilder::with_id("toggle_auto_detect", auto_detect_label).build(app)?)
         .item(&PredefinedMenuItem::separator(app)?)
         .item(&MenuItemBuilder::with_id("open_window", "Open Main Window").build(app)?)
         .item(&MenuItemBuilder::with_id("settings", "Settings").build(app)?)

@@ -17,6 +17,7 @@ import { useRecordingStateSync } from '@/hooks/useRecordingStateSync';
 import { useRecordingStart } from '@/hooks/useRecordingStart';
 import { useRecordingStop } from '@/hooks/useRecordingStop';
 import { useTranscriptRecovery } from '@/hooks/useTranscriptRecovery';
+import { useAutoMeetingDetection } from '@/hooks/useAutoMeetingDetection';
 import { TranscriptRecovery } from '@/components/TranscriptRecovery';
 import { indexedDBService } from '@/services/indexedDBService';
 import { toast } from 'sonner';
@@ -48,6 +49,20 @@ export default function Home() {
     setIsRecordingState,
     setIsRecordingDisabled
   );
+
+  // Auto-meeting detection: listen for meeting events and auto-start/stop recording
+  useAutoMeetingDetection(isRecording, setIsRecordingState, handleRecordingStop);
+
+  // Auto-stop recording when meeting ends (dispatched by useAutoMeetingDetection)
+  useEffect(() => {
+    const handleAutoStop = () => {
+      if (isRecording) {
+        handleRecordingStop();
+      }
+    };
+    window.addEventListener('auto-stop-recording', handleAutoStop);
+    return () => window.removeEventListener('auto-stop-recording', handleAutoStop);
+  }, [isRecording, handleRecordingStop]);
 
   // Recovery hook
   const {

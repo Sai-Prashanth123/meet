@@ -131,6 +131,9 @@ export function useRecordingStart(
       setIsMeetingActive(true);
       Analytics.trackButtonClick('start_recording', 'home_page');
 
+      // Notify useAutoMeetingDetection that this was a manual start
+      window.dispatchEvent(new CustomEvent('manual-recording-started'));
+
       // Show recording notification if enabled
       await showRecordingNotification();
     } catch (error) {
@@ -199,6 +202,9 @@ export function useRecordingStart(
             clearTranscripts();
             setIsMeetingActive(true);
             Analytics.trackButtonClick('start_recording', 'sidebar_auto');
+
+            // Notify useAutoMeetingDetection that this was a manual start
+            window.dispatchEvent(new CustomEvent('manual-recording-started'));
 
             // Show recording notification if enabled
             await showRecordingNotification();
@@ -286,6 +292,9 @@ export function useRecordingStart(
         clearTranscripts();
         setIsMeetingActive(true);
         Analytics.trackButtonClick('start_recording', 'sidebar_direct');
+
+        // Notify useAutoMeetingDetection that this was a manual start
+        window.dispatchEvent(new CustomEvent('manual-recording-started'));
 
         // Show recording notification if enabled
         await showRecordingNotification();

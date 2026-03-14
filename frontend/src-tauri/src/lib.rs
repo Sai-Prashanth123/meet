@@ -42,6 +42,7 @@ pub mod config;
 pub mod console_utils;
 pub mod database;
 pub mod notifications;
+pub mod meeting_detection;
 pub mod ollama;
 pub mod onboarding;
 pub mod openai;
@@ -479,10 +480,26 @@ pub fn run() {
             // }
 
             // Initialize database (handles first launch detection and conditional setup)
-            tauri::async_runtime::block_on(async {
+            if let Err(e) = tauri::async_runtime::block_on(async {
                 database::setup::initialize_database_on_startup(&_app.handle()).await
-            })
-            .expect("Failed to initialize database");
+            }) {
+                let error_msg = format!(
+                    "Failed to initialize database: {}\n\nThe application cannot start. \
+                     Please check your data directory permissions and try again.",
+                    e
+                );
+                log::error!("{}", error_msg);
+                use tauri_plugin_dialog::DialogExt;
+                _app.handle()
+                    .dialog()
+                    .message(&error_msg)
+                    .title("Meetily — Startup Error")
+                    .blocking_show();
+                return Err(error_msg.into());
+            }
+
+            // Start meeting detection service (background polling, Windows-aware)
+            meeting_detection::detector::spawn_detection_service(_app.handle().clone());
 
             // Initialize bundled templates directory for dynamic template discovery
             log::info!("Initializing bundled templates directory...");
@@ -686,6 +703,10 @@ pub fn run() {
             audio::permissions::check_screen_recording_permission_command,
             audio::permissions::request_screen_recording_permission_command,
             audio::permissions::trigger_system_audio_permission_command,
+            // Meeting detection commands
+            meeting_detection::detector::set_detection_config,
+            meeting_detection::detector::get_detection_config,
+            meeting_detection::detector::check_meeting_now,
             // Database import commands
             database::commands::check_first_launch,
             database::commands::select_legacy_database_path,
