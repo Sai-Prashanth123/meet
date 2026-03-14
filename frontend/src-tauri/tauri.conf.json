@@ -12,13 +12,15 @@
     "app": {
         "windows": [
             {
+                "label": "main",
                 "title": "meetily",
                 "width": 1100,
                 "height": 700,
                 "resizable": true,
                 "fullscreen": false,
                 "theme": "Light",
-                "decorations": true
+                "decorations": true,
+                "visible": true
             }
         ],
         "macOSPrivateApi": true,
@@ -106,7 +108,11 @@
             "signingIdentity": "-",
             "hardenedRuntime": true
         },
-        "windows": {}
+        "windows": {
+            "webviewInstallMode": {
+                "type": "downloadBootstrapper"
+            }
+        }
     },
     "plugins": {
         "updater": {
