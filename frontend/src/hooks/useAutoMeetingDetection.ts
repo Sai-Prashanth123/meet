@@ -16,8 +16,7 @@ import { MeetingDetectedEvent, MeetingEndedEvent } from '@/types/meetingDetectio
  */
 export function useAutoMeetingDetection(
   isRecording: boolean,
-  setIsRecording: (v: boolean) => void,
-  handleRecordingStop: () => Promise<void>
+  setIsRecording: (v: boolean) => void
 ) {
   const { betaFeatures, detectorConfig, selectedDevices } = useConfig();
   const autoStartedMeetingNameRef = useRef<string | null>(null);
@@ -99,6 +98,5 @@ export function useAutoMeetingDetection(
     detectorConfig.auto_stop_recording,
     selectedDevices,
     setIsRecording,
-    handleRecordingStop,
   ]);
 }

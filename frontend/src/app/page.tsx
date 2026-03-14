@@ -51,13 +51,13 @@ export default function Home() {
   );
 
   // Auto-meeting detection: listen for meeting events and auto-start/stop recording
-  useAutoMeetingDetection(isRecording, setIsRecordingState, handleRecordingStop);
+  useAutoMeetingDetection(isRecording, setIsRecordingState);
 
   // Auto-stop recording when meeting ends (dispatched by useAutoMeetingDetection)
   useEffect(() => {
     const handleAutoStop = () => {
       if (isRecording) {
-        handleRecordingStop();
+        handleRecordingStop(true);
       }
     };
     window.addEventListener('auto-stop-recording', handleAutoStop);
