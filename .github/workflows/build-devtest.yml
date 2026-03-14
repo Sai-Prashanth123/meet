@@ -347,8 +347,8 @@ jobs:
             LLAMA_FEATURES="--features metal"
             echo "Using Metal GPU acceleration for macOS"
           elif [[ "${{ matrix.platform }}" == *"windows"* ]]; then
-            LLAMA_FEATURES="--features vulkan"
-            echo "Using Vulkan GPU acceleration for Windows"
+            # CPU-only: Vulkan build has CMake race condition issues with llama-cpp-sys-2
+            echo "Using CPU-only mode for Windows llama-helper (Vulkan causes CMake race condition)"
           else
             echo "Using CPU-only mode for Linux"
           fi
