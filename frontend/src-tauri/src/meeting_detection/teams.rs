@@ -37,7 +37,7 @@ fn check_teams_window() -> bool {
             return BOOL(1);
         }
         let mut buf = [0u16; 512];
-        let len = GetWindowTextW(hwnd, windows::core::PWSTR(buf.as_mut_ptr()), 512);
+        let len = GetWindowTextW(hwnd, &mut buf);
         if len > 0 {
             let title = String::from_utf16_lossy(&buf[..len as usize]);
             if title.contains("| Microsoft Teams") {
