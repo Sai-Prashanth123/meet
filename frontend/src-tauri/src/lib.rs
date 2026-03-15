@@ -38,6 +38,7 @@ pub(crate) use perf_trace;
 pub mod analytics;
 pub mod api;
 pub mod audio;
+pub mod cloud;
 pub mod config;
 pub mod console_utils;
 pub mod database;
@@ -87,6 +88,8 @@ async fn start_recording<R: Runtime>(
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
     meeting_name: Option<String>,
+    cloud_mode: Option<bool>,
+    cloud_token: Option<String>,
 ) -> Result<(), String> {
     log_info!("🔥 CALLED start_recording with meeting: {:?}", meeting_name);
     log_info!(
@@ -106,6 +109,8 @@ async fn start_recording<R: Runtime>(
         mic_device_name,
         system_device_name,
         meeting_name.clone(),
+        cloud_mode.unwrap_or(false),
+        cloud_token,
     )
     .await
     {
@@ -301,7 +306,7 @@ async fn start_recording_with_devices<R: Runtime>(
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
 ) -> Result<(), String> {
-    start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None).await
+    start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None, None, None).await
 }
 
 #[tauri::command]
@@ -310,12 +315,15 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
     meeting_name: Option<String>,
+    cloud_mode: Option<bool>,
+    cloud_token: Option<String>,
 ) -> Result<(), String> {
     log_info!("🚀 CALLED start_recording_with_devices_and_meeting - Mic: {:?}, System: {:?}, Meeting: {:?}",
              mic_device_name, system_device_name, meeting_name);
 
     // Clone meeting_name for notification use later
     let meeting_name_for_notification = meeting_name.clone();
+    let is_cloud = cloud_mode.unwrap_or(false);
 
     // Call the recording module functions that support meeting names
     let recording_result = match (mic_device_name.clone(), system_device_name.clone()) {
@@ -324,8 +332,13 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
                 "No devices specified, starting with defaults and meeting: {:?}",
                 meeting_name
             );
-            audio::recording_commands::start_recording_with_meeting_name(app.clone(), meeting_name)
-                .await
+            audio::recording_commands::start_recording_with_meeting_name(
+                app.clone(),
+                meeting_name,
+                is_cloud,
+                cloud_token,
+            )
+            .await
         }
         _ => {
             log_info!(
@@ -339,6 +352,8 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
                 mic_device_name,
                 system_device_name,
                 meeting_name,
+                is_cloud,
+                cloud_token,
             )
             .await
         }

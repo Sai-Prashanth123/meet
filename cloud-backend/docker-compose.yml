@@ -1,0 +1,122 @@
+version: '3.9'
+
+# LOCAL DEV: Postgres runs in Docker.
+# PRODUCTION: Set DATABASE_URL in .env to point to Supabase and remove the
+# postgres service + its depends_on entries below.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: meetily
+      POSTGRES_USER: meetily_app
+      POSTGRES_PASSWORD: Meet1ly_Prod_2026_Secure
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
+      - ./db/migrations/002_production_constraints.sql:/docker-entrypoint-initdb.d/002_production_constraints.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meetily_app -d meetily"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    mem_limit: 512m
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --appendfsync everysec
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    mem_limit: 256m
+    restart: unless-stopped
+
+  auth:
+    build: ./auth
+    ports:
+      - "8001:8001"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://meetily_app:Meet1ly_Prod_2026_Secure@postgres:5432/meetily
+      ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+      REFRESH_TOKEN_EXPIRE_DAYS: "30"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  gateway:
+    build: ./gateway
+    ports:
+      - "8002:8002"
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      API_SERVICE_URL: http://api:8003
+      PORT: "8002"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('net').createConnection({port:8002,timeout:1000}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1)).on('timeout',()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  stt-worker:
+    build: ./stt-worker
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://meetily_app:Meet1ly_Prod_2026_Secure@postgres:5432/meetily
+      WORKER_ID: worker-1
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 512m
+
+  api:
+    build: ./api
+    ports:
+      - "8003:8003"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://meetily_app:Meet1ly_Prod_2026_Secure@postgres:5432/meetily
+      SUMMARY_MODEL: mistralai/Mistral-7B-Instruct-v0.2
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8003/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  postgres_data:
+  redis_data:

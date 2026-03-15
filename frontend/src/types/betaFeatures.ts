@@ -29,11 +29,20 @@ export interface BetaFeatures {
    * @since v0.4.0
    */
   autoMeetingDetection: boolean;
+
+  /**
+   * Stream audio to Meetily cloud backend for real-time transcription via Deepgram Nova-3.
+   * When enabled, transcription and storage happen in the cloud instead of locally.
+   * Requires login to Meetily cloud account.
+   * @since v0.5.0
+   */
+  cloudMode: boolean;
 }
 
 export const DEFAULT_BETA_FEATURES: BetaFeatures = {
   importAndRetranscribe: true,
   autoMeetingDetection: true, // Default: enabled — auto-starts recording when meeting detected
+  cloudMode: false,           // Default: disabled — opt-in cloud streaming
 };
 
 
@@ -43,6 +52,7 @@ export const DEFAULT_BETA_FEATURES: BetaFeatures = {
 export const BETA_FEATURE_NAMES: Record<keyof BetaFeatures, string> = {
   importAndRetranscribe: 'Import Audio & Retranscribe',
   autoMeetingDetection: 'Auto-Meeting Detection',
+  cloudMode: 'Cloud Mode (Deepgram)',
 };
 
 /**
@@ -51,6 +61,7 @@ export const BETA_FEATURE_NAMES: Record<keyof BetaFeatures, string> = {
 export const BETA_FEATURE_DESCRIPTIONS: Record<keyof BetaFeatures, string> = {
   importAndRetranscribe: 'Import audio files to transcribe or retranscribe existing meetings with different language settings.',
   autoMeetingDetection: 'Automatically detects Zoom, Microsoft Teams, and Google Meet sessions (Windows only) and can start/stop recording when meetings begin or end.',
+  cloudMode: 'Stream audio to Meetily cloud for real-time transcription via Deepgram Nova-3. Requires a Meetily cloud account. Transcripts and summaries are stored in the cloud.',
 };
 
 /**

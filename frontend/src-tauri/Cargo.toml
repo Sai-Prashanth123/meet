@@ -140,6 +140,7 @@ rayon = "1.10"
 rubato = "0.15.0"
 ringbuf = "0.4.8"
 tempfile = "3.3.0"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 
 ffmpeg-sidecar = { git = "https://github.com/nathanbabcock/ffmpeg-sidecar", branch = "main" }
 

@@ -8,6 +8,9 @@ import { recordingService } from '@/services/recordingService';
 import Analytics from '@/lib/analytics';
 import { showRecordingNotification } from '@/lib/recordingNotification';
 import { toast } from 'sonner';
+import { loadBetaFeatures } from '@/types/betaFeatures';
+
+const CLOUD_TOKEN_KEY = 'cloud_token';
 
 interface UseRecordingStartReturn {
   handleRecordingStart: () => Promise<void>;
@@ -82,31 +85,45 @@ export function useRecordingStart(
   // Handle manual recording start (from button click)
   const handleRecordingStart = useCallback(async () => {
     try {
-      console.log('handleRecordingStart called - checking Parakeet model status');
+      const betaFeatures = loadBetaFeatures();
+      const cloudMode = betaFeatures.cloudMode;
+      const cloudToken = cloudMode ? localStorage.getItem(CLOUD_TOKEN_KEY) : null;
 
-      // Check if Parakeet transcription model is ready before starting
-      const parakeetReady = await checkParakeetReady();
-      if (!parakeetReady) {
-        const isDownloading = await checkIfModelDownloading();
-        if (isDownloading) {
-          toast.info('Model download in progress', {
-            description: 'Please wait for the transcription model to finish downloading before recording.',
-            duration: 5000,
-          });
-          Analytics.trackButtonClick('start_recording_blocked_downloading', 'home_page');
-        } else {
-          toast.error('Transcription model not ready', {
-            description: 'Please download a transcription model before recording.',
-            duration: 5000,
-          });
-          showModal?.('modelSelector', 'Transcription model setup required');
-          Analytics.trackButtonClick('start_recording_blocked_missing', 'home_page');
+      // In cloud mode skip local model check — transcription runs remotely
+      if (!cloudMode) {
+        console.log('handleRecordingStart called - checking Parakeet model status');
+
+        const parakeetReady = await checkParakeetReady();
+        if (!parakeetReady) {
+          const isDownloading = await checkIfModelDownloading();
+          if (isDownloading) {
+            toast.info('Model download in progress', {
+              description: 'Please wait for the transcription model to finish downloading before recording.',
+              duration: 5000,
+            });
+            Analytics.trackButtonClick('start_recording_blocked_downloading', 'home_page');
+          } else {
+            toast.error('Transcription model not ready', {
+              description: 'Please download a transcription model before recording.',
+              duration: 5000,
+            });
+            showModal?.('modelSelector', 'Transcription model setup required');
+            Analytics.trackButtonClick('start_recording_blocked_missing', 'home_page');
+          }
+          setStatus(RecordingStatus.IDLE);
+          return;
         }
-        setStatus(RecordingStatus.IDLE);
-        return;
+      } else {
+        if (!cloudToken) {
+          toast.error('Cloud mode requires login', {
+            description: 'Please log in to your Meetily cloud account before recording.',
+            duration: 5000,
+          });
+          setStatus(RecordingStatus.IDLE);
+          return;
+        }
+        console.log('handleRecordingStart called — cloud mode active');
       }
-
-      console.log('Parakeet ready - setting up meeting title and state');
 
       const randomTitle = generateMeetingTitle();
       setMeetingTitle(randomTitle);
@@ -115,11 +132,13 @@ export function useRecordingStart(
       setStatus(RecordingStatus.STARTING, 'Initializing recording...');
 
       // Start the actual backend recording
-      console.log('Starting backend recording with meeting:', randomTitle);
+      console.log('Starting backend recording with meeting:', randomTitle, '| cloud:', cloudMode);
       await recordingService.startRecordingWithDevices(
         selectedDevices?.micDevice || null,
         selectedDevices?.systemDevice || null,
-        randomTitle
+        randomTitle,
+        cloudMode,
+        cloudToken,
       );
       console.log('Backend recording started successfully');
 
@@ -187,11 +206,17 @@ export function useRecordingStart(
             // Set STARTING status before initiating backend recording
             setStatus(RecordingStatus.STARTING, 'Initializing recording...');
 
+            const _betaAuto = loadBetaFeatures();
+            const _cloudModeAuto = _betaAuto.cloudMode;
+            const _cloudTokenAuto = _cloudModeAuto ? localStorage.getItem(CLOUD_TOKEN_KEY) : null;
+
             console.log('Auto-starting backend recording with meeting:', generatedMeetingTitle);
             const result = await recordingService.startRecordingWithDevices(
               selectedDevices?.micDevice || null,
               selectedDevices?.systemDevice || null,
-              generatedMeetingTitle
+              generatedMeetingTitle,
+              _cloudModeAuto,
+              _cloudTokenAuto,
             );
             console.log('Auto-start backend recording result:', result);
 
@@ -277,11 +302,17 @@ export function useRecordingStart(
         // Set STARTING status before initiating backend recording
         setStatus(RecordingStatus.STARTING, 'Initializing recording...');
 
+        const _betaDirect = loadBetaFeatures();
+        const _cloudModeDirect = _betaDirect.cloudMode;
+        const _cloudTokenDirect = _cloudModeDirect ? localStorage.getItem(CLOUD_TOKEN_KEY) : null;
+
         console.log('Starting backend recording with meeting:', generatedMeetingTitle);
         const result = await recordingService.startRecordingWithDevices(
           selectedDevices?.micDevice || null,
           selectedDevices?.systemDevice || null,
-          generatedMeetingTitle
+          generatedMeetingTitle,
+          _cloudModeDirect,
+          _cloudTokenDirect,
         );
         console.log('Backend recording result:', result);
 

@@ -45,6 +45,9 @@ static TRANSCRIPTION_TASK: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 // Listener ID for proper cleanup - prevents microphone from staying active after recording stops
 static TRANSCRIPT_LISTENER_ID: Mutex<Option<tauri::EventId>> = Mutex::new(None);
 
+// Cloud WebSocket sender — only Some when cloudMode is active
+static CLOUD_SENDER: Mutex<Option<crate::cloud::CloudWebSocketSender>> = Mutex::new(None);
+
 // ============================================================================
 // PUBLIC TYPES
 // ============================================================================
@@ -62,22 +65,52 @@ pub struct TranscriptionStatus {
 }
 
 // ============================================================================
+// CLOUD HELPERS
+// ============================================================================
+
+/// In cloud mode, reads AudioChunk items from the pipeline and forwards their
+/// raw f32 samples (48 kHz) to the CloudWebSocketSender, which handles
+/// resampling to 16 kHz PCM16 before transmitting to the gateway.
+fn start_cloud_forward_task(
+    transcription_receiver: tokio::sync::mpsc::UnboundedReceiver<super::recording_state::AudioChunk>,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut rx = transcription_receiver;
+        while let Some(chunk) = rx.recv().await {
+            let guard = CLOUD_SENDER.lock().unwrap();
+            if let Some(sender) = guard.as_ref() {
+                if let Err(e) = sender.send_audio(chunk.data) {
+                    warn!("[Cloud] Failed to forward audio chunk: {}", e);
+                }
+            }
+        }
+        info!("[Cloud] Audio forward task ended");
+    })
+}
+
+// ============================================================================
 // RECORDING COMMANDS
 // ============================================================================
 
 /// Start recording with default devices
 pub async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    start_recording_with_meeting_name(app, None).await
+    start_recording_with_meeting_name(app, None, false, None).await
 }
 
-/// Start recording with default devices and optional meeting name
+/// Start recording with default devices and optional meeting name.
+///
+/// When `cloud_mode` is `true` the audio pipeline is forwarded to the cloud
+/// gateway instead of running local Whisper transcription.  `cloud_token` must
+/// be the user's current JWT access token.
 pub async fn start_recording_with_meeting_name<R: Runtime>(
     app: AppHandle<R>,
     meeting_name: Option<String>,
+    cloud_mode: bool,
+    cloud_token: Option<String>,
 ) -> Result<(), String> {
     info!(
-        "Starting recording with default devices, meeting: {:?}",
-        meeting_name
+        "Starting recording with default devices, meeting: {:?}, cloud_mode: {}",
+        meeting_name, cloud_mode
     );
 
     // Check if already recording
@@ -87,22 +120,22 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
         return Err("Recording already in progress".to_string());
     }
 
-    // Validate that transcription models are available before starting recording
-    info!("🔍 Validating transcription model availability before starting recording...");
-    if let Err(validation_error) = transcription::validate_transcription_model_ready(&app).await {
-        error!("Model validation failed: {}", validation_error);
-
-        // Emit error event for frontend - actionable: false to show toast instead of modal
-        // (download progress is already shown in top-right toast)
-        let _ = app.emit("transcription-error", serde_json::json!({
-            "error": validation_error,
-            "userMessage": "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete.",
-            "actionable": false
-        }));
-
-        return Err(validation_error);
+    // In cloud mode we skip local model validation — transcription runs in the cloud.
+    if !cloud_mode {
+        info!("🔍 Validating transcription model availability before starting recording...");
+        if let Err(validation_error) = transcription::validate_transcription_model_ready(&app).await {
+            error!("Model validation failed: {}", validation_error);
+            let _ = app.emit("transcription-error", serde_json::json!({
+                "error": validation_error,
+                "userMessage": "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete.",
+                "actionable": false
+            }));
+            return Err(validation_error);
+        }
+        info!("✅ Transcription model validation passed");
+    } else {
+        info!("☁️  Cloud mode — skipping local model validation");
     }
-    info!("✅ Transcription model validation passed");
 
     // Async-first approach - no more blocking operations!
     info!("🚀 Starting async recording initialization");
@@ -247,8 +280,43 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     IS_RECORDING.store(true, Ordering::SeqCst);
     reset_speech_detected_flag(); // Reset for new recording session
 
-    // Start optimized parallel transcription task and store handle
-    let task_handle = transcription::start_transcription_task(app.clone(), transcription_receiver);
+    // ---- Start transcription: local Whisper OR cloud forward ----
+    let task_handle = if cloud_mode {
+        let token = cloud_token.unwrap_or_default();
+        let meeting_id = uuid::Uuid::new_v4().to_string();
+        let gateway_url = std::env::var("GATEWAY_URL")
+            .unwrap_or_else(|_| "wss://api.meetily.ai/stream".to_string());
+        let title = effective_meeting_name.clone();
+
+        info!("☁️  Connecting to cloud gateway: {}", gateway_url);
+
+        let app_for_event = app.clone();
+        match crate::cloud::CloudWebSocketSender::connect_with_retry(
+            gateway_url,
+            meeting_id.clone(),
+            title,
+            String::new(), // platform detected separately
+            token,
+            std::sync::Arc::new(move |transcript: crate::cloud::ServerTranscript| {
+                let _ = app_for_event.emit("cloud-transcript-update", &transcript);
+            }),
+        )
+        .await
+        {
+            Ok(sender) => {
+                *CLOUD_SENDER.lock().unwrap() = Some(sender);
+                info!("☁️  Cloud WebSocket connected — starting audio forward task");
+                start_cloud_forward_task(transcription_receiver)
+            }
+            Err(e) => {
+                error!("☁️  Failed to connect cloud gateway: {e}. Falling back to local transcription.");
+                transcription::start_transcription_task(app.clone(), transcription_receiver)
+            }
+        }
+    } else {
+        transcription::start_transcription_task(app.clone(), transcription_receiver)
+    };
+
     {
         let mut global_task = TRANSCRIPTION_TASK.lock().unwrap();
         *global_task = Some(task_handle);
@@ -291,7 +359,8 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     app.emit("recording-started", serde_json::json!({
         "message": "Recording started successfully with parallel processing",
         "devices": ["Default Microphone", "Default System Audio"],
-        "workers": 3
+        "workers": 3,
+        "cloud_mode": cloud_mode
     })).map_err(|e| e.to_string())?;
 
     // Update tray menu to reflect recording state
@@ -308,19 +377,24 @@ pub async fn start_recording_with_devices<R: Runtime>(
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
 ) -> Result<(), String> {
-    start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None).await
+    start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None, false, None).await
 }
 
-/// Start recording with specific devices and optional meeting name
+/// Start recording with specific devices and optional meeting name.
+///
+/// When `cloud_mode` is `true` the audio pipeline is forwarded to the cloud
+/// gateway instead of running local Whisper transcription.
 pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     app: AppHandle<R>,
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
     meeting_name: Option<String>,
+    cloud_mode: bool,
+    cloud_token: Option<String>,
 ) -> Result<(), String> {
     info!(
-        "Starting recording with specific devices: mic={:?}, system={:?}, meeting={:?}",
-        mic_device_name, system_device_name, meeting_name
+        "Starting recording with specific devices: mic={:?}, system={:?}, meeting={:?}, cloud_mode={}",
+        mic_device_name, system_device_name, meeting_name, cloud_mode
     );
 
     // Check if already recording
@@ -330,22 +404,22 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
         return Err("Recording already in progress".to_string());
     }
 
-    // Validate that transcription models are available before starting recording
-    info!("🔍 Validating transcription model availability before starting recording...");
-    if let Err(validation_error) = transcription::validate_transcription_model_ready(&app).await {
-        error!("Model validation failed: {}", validation_error);
-
-        // Emit error event for frontend - actionable: false to show toast instead of modal
-        // (download progress is already shown in top-right toast)
-        let _ = app.emit("transcription-error", serde_json::json!({
-            "error": validation_error,
-            "userMessage": "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete.",
-            "actionable": false
-        }));
-
-        return Err(validation_error);
+    // In cloud mode skip local model validation
+    if !cloud_mode {
+        info!("🔍 Validating transcription model availability before starting recording...");
+        if let Err(validation_error) = transcription::validate_transcription_model_ready(&app).await {
+            error!("Model validation failed: {}", validation_error);
+            let _ = app.emit("transcription-error", serde_json::json!({
+                "error": validation_error,
+                "userMessage": "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete.",
+                "actionable": false
+            }));
+            return Err(validation_error);
+        }
+        info!("✅ Transcription model validation passed");
+    } else {
+        info!("☁️  Cloud mode — skipping local model validation");
     }
-    info!("✅ Transcription model validation passed");
 
     // Parse devices
     let mic_device = if let Some(ref name) = mic_device_name {
@@ -415,8 +489,43 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     IS_RECORDING.store(true, Ordering::SeqCst);
     reset_speech_detected_flag(); // Reset for new recording session
 
-    // Start optimized parallel transcription task and store handle
-    let task_handle = transcription::start_transcription_task(app.clone(), transcription_receiver);
+    // ---- Start transcription: local Whisper OR cloud forward ----
+    let task_handle = if cloud_mode {
+        let token = cloud_token.unwrap_or_default();
+        let meeting_id = uuid::Uuid::new_v4().to_string();
+        let gateway_url = std::env::var("GATEWAY_URL")
+            .unwrap_or_else(|_| "wss://api.meetily.ai/stream".to_string());
+        let title = effective_meeting_name.clone();
+
+        info!("☁️  Connecting to cloud gateway: {}", gateway_url);
+
+        let app_for_event = app.clone();
+        match crate::cloud::CloudWebSocketSender::connect_with_retry(
+            gateway_url,
+            meeting_id.clone(),
+            title,
+            String::new(),
+            token,
+            std::sync::Arc::new(move |transcript: crate::cloud::ServerTranscript| {
+                let _ = app_for_event.emit("cloud-transcript-update", &transcript);
+            }),
+        )
+        .await
+        {
+            Ok(sender) => {
+                *CLOUD_SENDER.lock().unwrap() = Some(sender);
+                info!("☁️  Cloud WebSocket connected — starting audio forward task");
+                start_cloud_forward_task(transcription_receiver)
+            }
+            Err(e) => {
+                error!("☁️  Failed to connect cloud gateway: {e}. Falling back to local transcription.");
+                transcription::start_transcription_task(app.clone(), transcription_receiver)
+            }
+        }
+    } else {
+        transcription::start_transcription_task(app.clone(), transcription_receiver)
+    };
+
     {
         let mut global_task = TRANSCRIPTION_TASK.lock().unwrap();
         *global_task = Some(task_handle);
@@ -462,7 +571,8 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
             mic_device_name.unwrap_or_else(|| "Default Microphone".to_string()),
             system_device_name.unwrap_or_else(|| "Default System Audio".to_string())
         ],
-        "workers": 3
+        "workers": 3,
+        "cloud_mode": cloud_mode
     })).map_err(|e| e.to_string())?;
 
     // Update tray menu to reflect recording state
@@ -535,6 +645,16 @@ pub async fn stop_recording<R: Runtime>(
         if let Some(listener_id) = TRANSCRIPT_LISTENER_ID.lock().unwrap().take() {
             app.unlisten(listener_id);
             info!("✅ Transcript-update listener removed");
+        }
+    }
+
+    // Step 1.6: Gracefully shut down cloud WebSocket sender (sends end_meeting frame)
+    {
+        if let Ok(mut guard) = CLOUD_SENDER.lock() {
+            if let Some(sender) = guard.take() {
+                sender.stop();
+                info!("☁️  Cloud WebSocket sender stopped");
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { motion } from 'framer-motion';
 import { RecordingControls } from '@/components/RecordingControls';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
@@ -30,7 +31,7 @@ export default function Home() {
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
 
   // Use contexts for state management
-  const { meetingTitle } = useTranscripts();
+  const { meetingTitle, addTranscript } = useTranscripts();
   const { transcriptModelConfig, selectedDevices } = useConfig();
   const recordingState = useRecordingState();
 
@@ -63,6 +64,35 @@ export default function Home() {
     window.addEventListener('auto-stop-recording', handleAutoStop);
     return () => window.removeEventListener('auto-stop-recording', handleAutoStop);
   }, [isRecording, handleRecordingStop]);
+
+  // Cloud mode: receive real-time transcripts from the cloud gateway and push
+  // them into the same TranscriptContext used by local Whisper transcription.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    listen<{ meeting_id: string; text: string; timestamp_ms: number; is_final: boolean }>(
+      'cloud-transcript-update',
+      (event) => {
+        const { text, timestamp_ms, is_final } = event.payload;
+        const d = new Date(timestamp_ms);
+        const timestamp = d.toTimeString().slice(0, 8);
+        addTranscript({
+          text,
+          timestamp,
+          source: 'cloud',
+          sequence_id: timestamp_ms,
+          chunk_start_time: 0,
+          is_partial: !is_final,
+          confidence: 1.0,
+          audio_start_time: timestamp_ms / 1000,
+          audio_end_time: timestamp_ms / 1000,
+          duration: 0,
+        });
+      }
+    ).then((fn) => { unlisten = fn; });
+
+    return () => { unlisten?.(); };
+  }, [addTranscript]);
 
   // Recovery hook
   const {
