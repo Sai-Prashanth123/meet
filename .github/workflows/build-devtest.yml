@@ -141,17 +141,38 @@ jobs:
           sudo apt install vulkan-sdk -y
           sudo apt-get install -y mesa-vulkan-drivers
 
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          pnpm install
+
+      - name: Build llama-helper sidecar (before Vulkan SDK install)
+        shell: bash
+        run: |
+          echo "Building llama-helper sidecar (CPU-only, before Vulkan SDK)..."
+          LLAMA_FEATURES=""
+          if [[ "${{ matrix.platform }}" == *"macos"* ]]; then
+            LLAMA_FEATURES="--features metal"
+            echo "Using Metal GPU acceleration for macOS"
+          else
+            echo "Using CPU-only mode (no Vulkan SDK present yet)"
+          fi
+          cargo build --release -p llama-helper $LLAMA_FEATURES
+          EXT=""
+          if [[ "${{ matrix.platform }}" == *"windows"* ]]; then
+            EXT=".exe"
+          fi
+          mkdir -p frontend/src-tauri/binaries
+          cp target/release/llama-helper${EXT} frontend/src-tauri/binaries/llama-helper-${{ matrix.target }}${EXT}
+          echo "Copied llama-helper to frontend/src-tauri/binaries/llama-helper-${{ matrix.target }}${EXT}"
+          ls -la frontend/src-tauri/binaries/
+
       - name: Install Vulkan SDK (Windows)
         if: contains(matrix.platform, 'windows')
         uses: humbletim/install-vulkan-sdk@v1.2
         with:
           version: 1.4.309.0
           cache: true
-
-      - name: Install frontend dependencies
-        run: |
-          cd frontend
-          pnpm install
 
       # macOS signing setup
       - name: Import Apple Developer Certificate
@@ -339,39 +360,6 @@ jobs:
           fi
 
           echo "features=$FEATURES" >> "$GITHUB_OUTPUT"
-
-      - name: Build llama-helper sidecar
-        shell: bash
-        run: |
-          echo "Building llama-helper sidecar..."
-
-          # Determine llama-helper features based on platform
-          LLAMA_FEATURES=""
-          if [[ "${{ matrix.platform }}" == *"macos"* ]]; then
-            LLAMA_FEATURES="--features metal"
-            echo "Using Metal GPU acceleration for macOS"
-          elif [[ "${{ matrix.platform }}" == *"windows"* ]]; then
-            # CPU-only: Vulkan build has CMake race condition issues with llama-cpp-sys-2
-            echo "Using CPU-only mode for Windows llama-helper (Vulkan causes CMake race condition)"
-          else
-            echo "Using CPU-only mode for Linux"
-          fi
-
-          # Build llama-helper from workspace root
-          cargo build --release -p llama-helper $LLAMA_FEATURES
-
-          # Determine binary extension
-          EXT=""
-          if [[ "${{ matrix.platform }}" == *"windows"* ]]; then
-            EXT=".exe"
-          fi
-
-          # Copy binary to binaries directory
-          mkdir -p frontend/src-tauri/binaries
-          cp target/release/llama-helper${EXT} frontend/src-tauri/binaries/llama-helper-${{ matrix.target }}${EXT}
-
-          echo "Copied llama-helper to frontend/src-tauri/binaries/llama-helper-${{ matrix.target }}${EXT}"
-          ls -la frontend/src-tauri/binaries/
 
       # Build step (with code signing)
       - name: Build Tauri app (with code signing)
