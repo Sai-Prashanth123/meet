@@ -21,11 +21,21 @@ export function useAutoMeetingDetection(
   const { betaFeatures, detectorConfig, selectedDevices } = useConfig();
   const autoStartedMeetingNameRef = useRef<string | null>(null);
   const isRecordingRef = useRef(isRecording);
+  const detectorConfigRef = useRef(detectorConfig);
+  const selectedDevicesRef = useRef(selectedDevices);
 
-  // Keep ref in sync without re-running the effect
+  // Keep refs in sync without re-running the main effect
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
+
+  useEffect(() => {
+    detectorConfigRef.current = detectorConfig;
+  }, [detectorConfig]);
+
+  useEffect(() => {
+    selectedDevicesRef.current = selectedDevices;
+  }, [selectedDevices]);
 
   // Reset auto-start ref when user manually starts recording
   useEffect(() => {
@@ -47,13 +57,15 @@ export function useAutoMeetingDetection(
         'meeting-detected',
         async (event) => {
           if (isRecordingRef.current) return; // Already recording — skip
+          if (!detectorConfigRef.current.auto_start_recording) return; // Auto-start disabled
 
           const { suggested_meeting_name } = event.payload;
+          const devices = selectedDevicesRef.current;
 
           try {
             await recordingService.startRecordingWithDevices(
-              selectedDevices?.micDevice ?? null,
-              selectedDevices?.systemDevice ?? null,
+              devices?.micDevice ?? null,
+              devices?.systemDevice ?? null,
               suggested_meeting_name
             );
             setIsRecording(true);
@@ -74,7 +86,7 @@ export function useAutoMeetingDetection(
       );
 
       unlistenEnded = await listen<MeetingEndedEvent>('meeting-ended', async () => {
-        if (!detectorConfig.auto_stop_recording) return;
+        if (!detectorConfigRef.current.auto_stop_recording) return;
         if (!autoStartedMeetingNameRef.current) return; // Manual-override guard
 
         autoStartedMeetingNameRef.current = null;
@@ -91,11 +103,6 @@ export function useAutoMeetingDetection(
       unlistenDetected?.();
       unlistenEnded?.();
     };
-  }, [
-    betaFeatures.autoMeetingDetection,
-    detectorConfig.auto_start_recording,
-    detectorConfig.auto_stop_recording,
-    selectedDevices,
-    setIsRecording,
-  ]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [betaFeatures.autoMeetingDetection, setIsRecording]);
 }
